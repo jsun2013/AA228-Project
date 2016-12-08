@@ -6,6 +6,7 @@ from Queue import PriorityQueue, Empty
 import cvxpy as cvx
 from collections import defaultdict
 from copy import deepcopy
+import utils
 
 SUSCEPTIBLE, INFECTED, RECOVERED = range(3)
 
@@ -77,10 +78,13 @@ class ViralMarketing(object):
             self.out_degs[node.GetId()] = node.GetOutDeg()
             self.max_deg = max(self.max_deg, node.GetOutDeg())
 
-    def MCTreeSearch(self, num_trajectories=200):
+    def MCTreeSearch(self, num_trajectories=200, k=10, kp=10, alpha=10, alphap=10):
         T = set()
+        actions_tried = {set()}
         Ns = defaultdict(int)
         Nsa = defaultdict(lambda: defaultdict(int))
+        Nsas = defaultdict(lambda: defaultdict(defaultdict(int)))
+        V = defaultdict(lambda: defaultdict(set()))
         Q = defaultdict(lambda: defaultdict(float))
 
         def default_policy(s):
@@ -142,13 +146,30 @@ class ViralMarketing(object):
                 return 0
             if s not in T:
                 T.add(s)
+                Q[s][tuple()] = 0.0
+                Ns[s] = 0
+                Nsa[s][tuple()] = 0
                 return Rollout(s, d, pi_0)
+            Ns[s] += 1
+            if len(actions_tried[s]) < k*Ns[s]**alpha:
+                a = default_policy(s)
+                Nsa[s][a] = 0
+                Q[s][a] = 0.0
+                V[s][a] = set()
+                actions_tried[s].add(a)
             a = get_best_action(s)
-            r = reward(s, a)
-            sp = transition(s, a)
+
+            if len(V[s][a]) < kp*Nsa[s][a]**alphap:
+                r = reward(s, a)
+                sp = transition(s, a)
+                V[s][a].add(sp)
+                Nsas[s][a][sp] += 1
+            else:
+                sp = utils.weighted_random_choice(Nsas[s][a])
+                r = rewards(s,a)
+                Nsas[s][a][sp] += 1
             q = r + Simulate(sp, d - 1, pi_0)
             Nsa[s][a] += 1
-            Ns[s] += 1
             Q[s][a] += (q - Q[s][a]) / Nsa[s][a]
             return q
 
