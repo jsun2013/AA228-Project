@@ -6,6 +6,7 @@ from collections import defaultdict
 from copy import deepcopy
 import utils
 from time import time
+import ast
 
 SUSCEPTIBLE, INFECTED, RECOVERED = range(3)
 
@@ -351,6 +352,25 @@ class ViralMarketing(object):
         seed_set = self.degree_discount(s0, k)
         return self.single_horizon(seed_set)
 
+    def improved_greedy(self):
+        s0 = State(self.n, self.horizon)
+        max_val = -np.inf
+        best_k = None
+        best_seed = None
+        for k in xrange(20):
+            seed_set = self.degree_discount(s0, k)
+            r = 0.0
+            for _ in xrange(1000):
+                temp_r,_,_ = self.single_horizon(seed_set)
+                r += temp_r
+            if r >  max_val:
+                max_val = r
+                best_k = k
+                best_seed = seed_set
+
+        return self.single_horizon(best_seed)
+
+
     def single_horizon(self, seed):
         s = State(self.n, t=self.horizon)
         reward = self.get_reward(s, seed)
@@ -377,9 +397,9 @@ class ViralMarketing(object):
                 break
         return reward, tuple(sorted(seed)), s
 
-def main(G, name):
+def main(G, name, num_trials=200):
+    n = G.GetNodes()
     viral = ViralMarketing(G, beta=0.1, delta=1)
-    num_trials = 200
 
     rewards = []
     actions = []
@@ -392,13 +412,13 @@ def main(G, name):
         actions.append(test_a)
     print("Done")
 
-    with open("{}-greedy.txt".format(name), "w+") as f:
+    with open("Results-{}/{}-greedy.txt".format(n,name), "w+") as f:
         f.write("Reward,Time,Seed\n")
         for i in xrange(len(rewards)):
             f.write(str(rewards[i]))
-            f.write(",")
+            f.write(";")
             f.write(str(times[i]))
-            f.write(",")
+            f.write(";")
             f.write(str(actions[i]))
             f.write("\n")
     rewards = []
@@ -411,57 +431,106 @@ def main(G, name):
         rewards.append(test_r)
         actions.append(test_a)
     print("Done")
-    with open("{}-MCT.txt".format(name), "w+") as f:
+    with open("Results-{}/{}-MCT.txt".format(n, name), "w+") as f:
         f.write("Reward,Time,Actions\n")
         for i in xrange(len(rewards)):
             f.write(str(rewards[i]))
-            f.write(",")
+            f.write(";")
             f.write(str(times[i]))
-            f.write(",")
+            f.write(";")
             f.write(str(actions[i]))
             f.write("\n")
 
-    # rewards = []
-    # actions = []
-    # times = []
-    # for i in xrange(num_trials):
-    #     start_time = time()
-    #     test_r, test_a, _ = viral.HybridSearch()
-    #     times.append(time() - start_time)
-    #     rewards.append(test_r)
-    #     actions.append(test_a)
-    # print("Done")
-    #
-    # with open("{}-hybrid.txt".format(name), "w+") as f:
-    #     f.write("Reward,Time,Seed\n")
-    #     for i in xrange(len(rewards)):
-    #         f.write(str(rewards[i]))
-    #         f.write(",")
-    #         f.write(str(times[i]))
-    #         f.write(",")
-    #         f.write(str(actions[i]))
-    #         f.write("\n")
+    rewards = []
+    actions = []
+    times = []
+    for i in xrange(num_trials):
+        start_time = time()
+        test_r, test_a, _ = viral.HybridSearch()
+        times.append(time() - start_time)
+        rewards.append(test_r)
+        actions.append(test_a)
+    print("Done")
+
+    with open("Results-{}/{}-hybrid.csv".format(n,name), "w+") as f:
+        f.write("Reward,Time,Seed\n")
+        for i in xrange(len(rewards)):
+            f.write(str(rewards[i]))
+            f.write(";")
+            f.write(str(times[i]))
+            f.write(";")
+            f.write(str(actions[i]))
+            f.write("\n")
 
     return viral
 
 
-n = 100
-# G_rmat = snap.GenRMat(n, 5*n, 0.55, 0.228, 0.212)
-# G_er = snap.GenRndGnm(snap.PNGraph, n, 5*n)
-# G_pa = snap.GenPrefAttach(n, 5)
-# snap.SaveEdgeList(G_rmat, 'G_rmat.txt')
-# snap.SaveEdgeList(G_er, 'G_er.txt')
-# snap.SaveEdgeList(G_pa, 'G_pa.txt')
+n = 5000
+G_rmat = snap.GenRMat(n, 5*n, 0.55, 0.228, 0.212)
+G_er = snap.GenRndGnm(snap.PNGraph, n, 5*n)
+G_pa = snap.GenPrefAttach(n, 5)
+snap.SaveEdgeList(G_rmat, 'G_rmat_{}.txt'.format(n))
+snap.SaveEdgeList(G_er, 'G_er.txt_{}.txt'.format(n))
+snap.SaveEdgeList(G_pa, 'G_pa.txt_{}.txt'.format(n))
 
-G_rmat = snap.LoadEdgeList(snap.PNGraph, "G_rmat.txt")
-G_er = snap.LoadEdgeList(snap.PNGraph, "G_er.txt")
-G_pa = snap.LoadEdgeList(snap.PNGraph, "G_pa.txt")
+# G_rmat = snap.LoadEdgeList(snap.PNGraph, "G_rmat.txt")
+# G_er = snap.LoadEdgeList(snap.PNGraph, "G_er.txt")
+# G_pa = snap.LoadEdgeList(snap.PNGraph, "G_pa.txt")
 
-viral_pa = main(G_pa, "PA")
-viral_rmat = main(G_rmat, "RMAT")
-viral_er = main(G_er, "ER")
+viral_pa = main(G_pa, "PA", num_trials=10)
+viral_rmat = main(G_rmat, "RMAT", num_trials=10)
+viral_er = main(G_er, "ER", num_trials=10)
 
-viral_pa = ViralMarketing(G_pa, beta=0.1, delta=1)
-start_time = time()
-test_r, test_a, test_s = viral_pa.HybridSearch()
-print(time()-start_time)
+for name in ["ER", "PA", "RMAT"]:
+    for num in [100, 200]:
+        for type in ["greedy", "hybrid", "MCT"]:
+            with open("Results-{}/{}-{}.csv".format(num, name, type), "r") as f:
+                with open("Results-{}/{}-{}".format(num, name, type), "w+") as f_n:
+                    for line in f:
+                        f_n.write(line.replace(",", ";", 2))
+
+results = {}
+for name in ["ER", "PA", "RMAT"]:
+    results[name] = {}
+    for num in [100, 200]:
+        results[name][num] = {}
+        for type in ["greedy", "hybrid", "MCT"]:
+            results[name][num][type] = {}
+            results[name][num][type]["reward"] = []
+            results[name][num][type]["time"] = []
+            results[name][num][type]["action"] = []
+            with open("Results-{}/{}-{}".format(num, name, type), "r") as f:
+                f.readline()
+                for line in f:
+                    line = line.strip()
+                    line = line.split(";")
+                    results[name][num][type]["reward"].append(ast.literal_eval(line[0]))
+                    results[name][num][type]["time"].append(ast.literal_eval(line[1]))
+                    results[name][num][type]["action"].append(ast.literal_eval(line[2]))
+
+
+print("\\textbr{Algorithm} && \\textbr{Graph} && \\textbr{n} && \\textbr{Mean Reward} && \\textbr{STD Reward} && \\textbr{Mean Runtime} && \\textbr{STD Runtime} && \\textbr{Mean Effort} && \\textbr{STD Effort}")
+for name in ["ER", "PA", "RMAT"]:
+    for num in [100, 200]:
+        for type in ["greedy", "hybrid", "MCT"]:
+            r_bar = str(np.mean(results[name][num][type]["reward"]))
+            r_std = str(np.std(results[name][num][type]["reward"]))
+            t_bar = str(np.mean(results[name][num][type]["time"]))
+            t_std = str(np.std(results[name][num][type]["time"]))
+            if type == "greedy":
+                c_bar = "5"
+                c_std = "0"
+            else:
+                cs = []
+                for actions in results[name][num][type]["action"]:
+                    c_temp = 0
+                    for a in actions:
+                        c_temp += len(a)
+                    cs.append(c_temp)
+                c_bar = str(np.mean(cs))
+                c_std = str(np.std(cs))
+            print(" && ".join([type, name, str(num), r_bar, r_std, t_bar, t_std, c_bar, c_std]) + "\\\\")
+
+
+
+
