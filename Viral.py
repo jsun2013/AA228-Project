@@ -289,7 +289,8 @@ class ViralMarketing(object):
                 return [tuple()]
             choices = sorted(self.degree_discount(s, k))
             actions = [tuple()]
-            for subset in itertools.combinations(choices, k):
+            for l in xrange(len(choices)+1):
+                for subset in itertools.combinations(choices, l):
                     actions.append(subset)
             return actions
 
@@ -324,8 +325,7 @@ class ViralMarketing(object):
             if d == 0:
                 return 0
             # a = pi_0(s)
-            a = ()
-            return self.get_reward(s, a)
+            return self.get_reward(s, tuple())
             # r = self.get_reward(s, a)
             # sp = self.transition(s, a)
             # return r + Rollout(sp, d - 1, pi_0)
@@ -531,7 +531,6 @@ def main(G, name, num_trials=200):
     return viral
 
 
-n = 500
 # G_rmat = snap.GenRMat(n, 5*n, 0.55, 0.228, 0.212)
 # G_er = snap.GenRndGnm(snap.PNGraph, n, 5*n)
 # G_pa = snap.GenPrefAttach(n, 5)
@@ -539,13 +538,23 @@ n = 500
 # snap.SaveEdgeList(G_er, 'G_er.txt_{}.txt'.format(n))
 # snap.SaveEdgeList(G_pa, 'G_pa.txt_{}.txt'.format(n))
 for n in [100, 200,500]:
-    G_rmat = snap.LoadEdgeList(snap.PNGraph, "G_rmat_{}.txt".format(n))
+    # G_rmat = snap.LoadEdgeList(snap.PNGraph, "G_rmat_{}.txt".format(n))
+    G_rmat = snap.GenRMat(n, 5*n, 0.55, 0.228, 0.212)
     G_er = snap.LoadEdgeList(snap.PNGraph, "G_er_{}.txt".format(n))
     G_pa = snap.LoadEdgeList(snap.PNGraph, "G_pa_{}.txt".format(n))
 
     viral_pa = main(G_pa, "PA", num_trials=200)
     viral_rmat = main(G_rmat, "RMAT", num_trials=200)
     viral_er = main(G_er, "ER", num_trials=200)
+for n in [1000, 5000]:
+    # G_rmat = snap.LoadEdgeList(snap.PNGraph, "G_rmat_{}.txt".format(n))
+    G_rmat = snap.GenRMat(n, 5*n, 0.55, 0.228, 0.212)
+    G_er = snap.LoadEdgeList(snap.PNGraph, "G_er_{}.txt".format(n))
+    G_pa = snap.LoadEdgeList(snap.PNGraph, "G_pa_{}.txt".format(n))
+
+    viral_pa = main(G_pa, "PA", num_trials=10)
+    viral_rmat = main(G_rmat, "RMAT", num_trials=10)
+    viral_er = main(G_er, "ER", num_trials=10)
 
 # for name in ["ER", "PA", "RMAT"]:
 #     for num in [100, 200]:
