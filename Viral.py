@@ -7,6 +7,8 @@ from copy import deepcopy
 import utils
 from time import time
 import ast
+import os
+import itertools
 
 SUSCEPTIBLE, INFECTED, RECOVERED = range(3)
 
@@ -132,7 +134,7 @@ class ViralMarketing(object):
                 for _ in xrange(5):
                     node_id = random.randint(0, self.n - 1)
                     if random.random() <= 0.5 or \
-                            (s[node_id] == INFECTED and random.randint(0, self.max_deg) < self.out_degs[node_id]):
+                            (s[node_id] == SUSCEPTIBLE and random.randint(0, self.max_deg) < self.out_degs[node_id]):
                         a.add(node_id)
             return tuple(sorted(list(a)))
 
@@ -155,13 +157,16 @@ class ViralMarketing(object):
                     best_a = a
             return best_a
 
-        def Rollout(s, d, pi_0):
+        def Rollout(s, d, pi_0, first=False):
             if d == 0:
                 return 0
-            a = pi_0(s)
-            r = self.get_reward(s, a)
-            sp = self.transition(s, a)
-            return r + Rollout(sp, d - 1, pi_0)
+            if first:
+                a = pi_0(s)
+                r = self.get_reward(s, a)
+                sp = self.transition(s, a)
+                return r + Rollout(sp, d - 1, pi_0)
+            else:
+                return self.get_reward(s, tuple())
 
         def Simulate(s, d=self.horizon, pi_0=default_policy):
             if d == 0:
@@ -169,7 +174,7 @@ class ViralMarketing(object):
             if s not in T:
                 T.add(s)
                 Ns[s] = 0
-                return Rollout(s, s.t, pi_0)
+                return Rollout(s, s.t, pi_0, first=True)
             Ns[s] += 1
             if len(actions_tried[s]) < k*Ns[s]**alpha:
                 a = None
@@ -221,6 +226,8 @@ class ViralMarketing(object):
         assert k < self.n
         S = np.zeros(self.n, dtype=bool)
         S_bar = np.logical_not(S)
+        # p = np.zeros(self.n)
+        # c = np.zeros(self.n)
         t = np.zeros(self.n)
         ddv = np.zeros(self.n)
         ddv_temp = np.zeros(self.n)
@@ -237,7 +244,13 @@ class ViralMarketing(object):
                 for v in self.children[i]:
                     if not S[v]:
                         t[v] += 1
+                        # p[v] += 1
                         ddv[v] = self.out_degs[v] - 2 * t[v] - (self.out_degs[v] - t[v]) * t[v] * self.beta
+                        # ddv[v] = self.out_degs[v] - p[v] - c[v] - (self.out_degs[v] - c[v]) * p[v] * self.beta
+                # for v in self.parents[i]:
+                #     if not S[v]:
+                #         c[v] += 1
+                #         ddv[v] = self.out_degs[v] - p[v] - c[v] - (self.out_degs[v] - c[v]) * p[v] * self.beta
 
         for i in xrange(k):
             ddv_temp[S] = -np.inf
@@ -245,9 +258,16 @@ class ViralMarketing(object):
             S[u] = True
             S_bar[u] = False
             for v in self.children[u]:
-                if not S[v]:
-                    t[v] += 1
-                    ddv[v] = self.out_degs[v] - 2 * t[v] - (self.out_degs[v] - t[v]) * t[v] * self.beta
+                for v in self.children[i]:
+                    if not S[v]:
+                        t[v] += 1
+                        # p[v] += 1
+                        ddv[v] = self.out_degs[v] - 2 * t[v] - (self.out_degs[v] - t[v]) * t[v] * self.beta
+                        # ddv[v] = self.out_degs[v] - p[v] - c[v] - (self.out_degs[v] - c[v]) * p[v] * self.beta
+                # for v in self.parents[i]:
+                #     if not S[v]:
+                #         c[v] += 1
+                #         ddv[v] = self.out_degs[v] - p[v] - c[v] - (self.out_degs[v] - c[v]) * p[v] * self.beta
         out = set()
         for i, val in enumerate(S):
             if val and s[i] == SUSCEPTIBLE:
@@ -269,9 +289,8 @@ class ViralMarketing(object):
                 return [tuple()]
             choices = sorted(self.degree_discount(s, k))
             actions = [tuple()]
-            for i in xrange(k):
-                for j in xrange(i+1, k+1):
-                    actions.append(tuple(choices[i:j]))
+            for subset in itertools.combinations(choices, k):
+                    actions.append(subset)
             return actions
 
         def smart_policy(s):
@@ -306,9 +325,10 @@ class ViralMarketing(object):
                 return 0
             # a = pi_0(s)
             a = ()
-            r = self.get_reward(s, a)
-            sp = self.transition(s, a)
-            return r + Rollout(sp, d - 1, pi_0)
+            return self.get_reward(s, a)
+            # r = self.get_reward(s, a)
+            # sp = self.transition(s, a)
+            # return r + Rollout(sp, d - 1, pi_0)
 
         def Simulate(s, d=self.horizon, pi_0=smart_policy):
             if d == 0:
@@ -357,10 +377,10 @@ class ViralMarketing(object):
         max_val = -np.inf
         best_k = None
         best_seed = None
-        for k in xrange(20):
+        for k in xrange(5):
             seed_set = self.degree_discount(s0, k)
             r = 0.0
-            for _ in xrange(1000):
+            for _ in xrange(100):
                 temp_r,_,_ = self.single_horizon(seed_set)
                 r += temp_r
             if r >  max_val:
@@ -397,6 +417,52 @@ class ViralMarketing(object):
                 break
         return reward, tuple(sorted(seed)), s
 
+def test_new_greedy(G, name, num_trials=200):
+    n = G.GetNodes()
+    viral = ViralMarketing(G, beta=0.1, delta=1)
+    rewards = []
+    actions = []
+    times = []
+    for i in xrange(num_trials):
+        start_time = time()
+        test_r, test_a, _ = viral.greedy()
+        times.append(time() - start_time)
+        rewards.append(test_r)
+        actions.append(test_a)
+    print("Done")
+
+    if not os.path.exists("Test_greedy/Results-{}".format(n)):
+        os.makedirs("Test_greedy/Results-{}".format(n))
+    with open("Test_greedy/Results-{}/{}-greedy.txt".format(n, name), "w+") as f:
+        f.write("Reward,Time,Seed\n")
+        for i in xrange(len(rewards)):
+            f.write(str(rewards[i]))
+            f.write(";")
+            f.write(str(times[i]))
+            f.write(";")
+            f.write(str(actions[i]))
+            f.write("\n")
+    rewards = []
+    actions = []
+    times = []
+    for i in xrange(num_trials):
+        start_time = time()
+        test_r, test_a, _ = viral.improved_greedy()
+        times.append(time() - start_time)
+        rewards.append(test_r)
+        actions.append(test_a)
+    print("Done")
+    with open("Test_greedy/Results-{}/{}-better-greedy.txt".format(n, name), "w+") as f:
+        f.write("Reward,Time,Seed\n")
+        for i in xrange(len(rewards)):
+            f.write(str(rewards[i]))
+            f.write(";")
+            f.write(str(times[i]))
+            f.write(";")
+            f.write(str(actions[i]))
+            f.write("\n")
+
+
 def main(G, name, num_trials=200):
     n = G.GetNodes()
     viral = ViralMarketing(G, beta=0.1, delta=1)
@@ -412,7 +478,7 @@ def main(G, name, num_trials=200):
         actions.append(test_a)
     print("Done")
 
-    with open("Results-{}/{}-greedy.txt".format(n,name), "w+") as f:
+    with open("Results-{}/{}-greedy".format(n,name), "w+") as f:
         f.write("Reward,Time,Seed\n")
         for i in xrange(len(rewards)):
             f.write(str(rewards[i]))
@@ -431,7 +497,7 @@ def main(G, name, num_trials=200):
         rewards.append(test_r)
         actions.append(test_a)
     print("Done")
-    with open("Results-{}/{}-MCT.txt".format(n, name), "w+") as f:
+    with open("Results-{}/{}-MCT".format(n, name), "w+") as f:
         f.write("Reward,Time,Actions\n")
         for i in xrange(len(rewards)):
             f.write(str(rewards[i]))
@@ -452,7 +518,7 @@ def main(G, name, num_trials=200):
         actions.append(test_a)
     print("Done")
 
-    with open("Results-{}/{}-hybrid.csv".format(n,name), "w+") as f:
+    with open("Results-{}/{}-hybrid".format(n,name), "w+") as f:
         f.write("Reward,Time,Seed\n")
         for i in xrange(len(rewards)):
             f.write(str(rewards[i]))
@@ -465,34 +531,34 @@ def main(G, name, num_trials=200):
     return viral
 
 
-n = 5000
-G_rmat = snap.GenRMat(n, 5*n, 0.55, 0.228, 0.212)
-G_er = snap.GenRndGnm(snap.PNGraph, n, 5*n)
-G_pa = snap.GenPrefAttach(n, 5)
-snap.SaveEdgeList(G_rmat, 'G_rmat_{}.txt'.format(n))
-snap.SaveEdgeList(G_er, 'G_er.txt_{}.txt'.format(n))
-snap.SaveEdgeList(G_pa, 'G_pa.txt_{}.txt'.format(n))
+n = 500
+# G_rmat = snap.GenRMat(n, 5*n, 0.55, 0.228, 0.212)
+# G_er = snap.GenRndGnm(snap.PNGraph, n, 5*n)
+# G_pa = snap.GenPrefAttach(n, 5)
+# snap.SaveEdgeList(G_rmat, 'G_rmat_{}.txt'.format(n))
+# snap.SaveEdgeList(G_er, 'G_er.txt_{}.txt'.format(n))
+# snap.SaveEdgeList(G_pa, 'G_pa.txt_{}.txt'.format(n))
+for n in [100, 200,500]:
+    G_rmat = snap.LoadEdgeList(snap.PNGraph, "G_rmat_{}.txt".format(n))
+    G_er = snap.LoadEdgeList(snap.PNGraph, "G_er_{}.txt".format(n))
+    G_pa = snap.LoadEdgeList(snap.PNGraph, "G_pa_{}.txt".format(n))
 
-# G_rmat = snap.LoadEdgeList(snap.PNGraph, "G_rmat.txt")
-# G_er = snap.LoadEdgeList(snap.PNGraph, "G_er.txt")
-# G_pa = snap.LoadEdgeList(snap.PNGraph, "G_pa.txt")
+    viral_pa = main(G_pa, "PA", num_trials=200)
+    viral_rmat = main(G_rmat, "RMAT", num_trials=200)
+    viral_er = main(G_er, "ER", num_trials=200)
 
-viral_pa = main(G_pa, "PA", num_trials=10)
-viral_rmat = main(G_rmat, "RMAT", num_trials=10)
-viral_er = main(G_er, "ER", num_trials=10)
-
-for name in ["ER", "PA", "RMAT"]:
-    for num in [100, 200]:
-        for type in ["greedy", "hybrid", "MCT"]:
-            with open("Results-{}/{}-{}.csv".format(num, name, type), "r") as f:
-                with open("Results-{}/{}-{}".format(num, name, type), "w+") as f_n:
-                    for line in f:
-                        f_n.write(line.replace(",", ";", 2))
-
+# for name in ["ER", "PA", "RMAT"]:
+#     for num in [100, 200]:
+#         for type in ["greedy", "hybrid", "MCT"]:
+#             with open("Results-{}/{}-{}.csv".format(num, name, type), "r") as f:
+#                 with open("Results-{}/{}-{}".format(num, name, type), "w+") as f_n:
+#                     for line in f:
+#                         f_n.write(line.replace(",", ";", 2))
+#
 results = {}
 for name in ["ER", "PA", "RMAT"]:
     results[name] = {}
-    for num in [100, 200]:
+    for num in [100, 200,500,1000,5000]:
         results[name][num] = {}
         for type in ["greedy", "hybrid", "MCT"]:
             results[name][num][type] = {}
@@ -509,14 +575,21 @@ for name in ["ER", "PA", "RMAT"]:
                     results[name][num][type]["action"].append(ast.literal_eval(line[2]))
 
 
-print("\\textbr{Algorithm} && \\textbr{Graph} && \\textbr{n} && \\textbr{Mean Reward} && \\textbr{STD Reward} && \\textbr{Mean Runtime} && \\textbr{STD Runtime} && \\textbr{Mean Effort} && \\textbr{STD Effort}")
+# print("\\textbf{Algorithm} & \\textbf{Graph} & \\textbf{n} & \\textbf{Mean Reward} & \\textbf{STD Reward} & \\textbf{Mean Runtime} & \\textbf{STD Runtime} & \\textbf{Mean Effort} & \\textbf{STD Effort}")
+print("\\textbf{Algorithm} & \\textbf{n} & \\textbf{Mean Reward} & \\textbf{Mean Runtime} &  \\textbf{Mean Effort}  \\\\\\hline")
+
+from scipy import stats
+
 for name in ["ER", "PA", "RMAT"]:
-    for num in [100, 200]:
+    print(
+        "\\textbf{Algorithm} & \\textbf{n} & \\textbf{Mean Reward} & \\textbf{Mean Runtime} &  \\textbf{Mean Effort}  \\\\\\hline")
+
+    for num in [100, 200,500,1000,5000]:
         for type in ["greedy", "hybrid", "MCT"]:
             r_bar = str(np.mean(results[name][num][type]["reward"]))
-            r_std = str(np.std(results[name][num][type]["reward"]))
-            t_bar = str(np.mean(results[name][num][type]["time"]))
-            t_std = str(np.std(results[name][num][type]["time"]))
+            r_std = str(round(stats.sem(results[name][num][type]["reward"]),3))
+            t_bar = str(round(np.mean(results[name][num][type]["time"]),3))
+            t_std = str(round(stats.sem(results[name][num][type]["time"]),3))
             if type == "greedy":
                 c_bar = "5"
                 c_std = "0"
@@ -528,9 +601,10 @@ for name in ["ER", "PA", "RMAT"]:
                         c_temp += len(a)
                     cs.append(c_temp)
                 c_bar = str(np.mean(cs))
-                c_std = str(np.std(cs))
-            print(" && ".join([type, name, str(num), r_bar, r_std, t_bar, t_std, c_bar, c_std]) + "\\\\")
-
-
-
-
+                c_std = str(round(stats.sem(cs),3))
+            print(" & ".join([type, str(num), "$"+r_bar+"\\pm"+r_std+"$", "$"+t_bar+"\\pm"+t_std+"$", "$"+c_bar+"\\pm"+ c_std+"$"]) + "\\\\")
+    print()
+    print()
+#
+#
+#
